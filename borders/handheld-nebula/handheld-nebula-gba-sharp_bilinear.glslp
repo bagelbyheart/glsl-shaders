@@ -17,9 +17,9 @@ out_res_y = "224.000000"
 textures = "BORDER"
 BORDER = "handheld-nebula-gba.png"
 
-shader1 = "GLSL-Shaders/stock.glsl"
+shader1 = "../../stock.glsl"
 scale_x1 = "2.000000"
 scale_y1 = "2.000000"
 
-shader2 = "GLSL-Shaders/stock.glsl"
+shader2 = "../../stock.glsl"
 filter_linear2 = "true"
