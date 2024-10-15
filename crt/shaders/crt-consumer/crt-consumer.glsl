@@ -1,7 +1,7 @@
 #version 110
 
 /* 
-crt-consumer by DariusG 2022-2023
+crt-consumer by DariusG 2022-2024
 
 
 This program is free software; you can redistribute it and/or modify it
@@ -38,15 +38,18 @@ any later version.
 #pragma parameter bogus_col " [ COLORS ] " 0.0 0.0 0.0 0.0
 #pragma parameter GAMMA_OUT "Gamma Out" 2.2 0.0 4.0 0.05
 #pragma parameter crt_lum "CRT Luminances On/Off" 1.0 0.0 1.0 1.0
-#pragma parameter brightboost1 "Bright boost dark pixels" 1.3 0.0 3.0 0.05
-#pragma parameter brightboost2 "Bright boost bright pixels" 1.05 0.0 3.0 0.05
+#pragma parameter glow "Glow Strength" 0.12 0.0 1.0 0.01
+#pragma parameter brightboost1 "Bright boost dark pixels" 1.0 0.0 3.0 0.05
+#pragma parameter brightboost2 "Bright boost bright pixels" 1.0 0.0 3.0 0.05
 #pragma parameter sat "Saturation" 1.0 0.0 2.0 0.05
 #pragma parameter contrast "Contrast, 1.0:Off" 1.0 0.00 2.00 0.05
 #pragma parameter nois "Noise" 0.0 0.0 1.0 0.01
 #pragma parameter WP "Color Temperature %" 0.0 -100.0 100.0 5.0 
 #pragma parameter sawtooth "Sawtooth Effect" 1.0 0.0 1.0 1.0
+#pragma parameter saw_static "Sawtooth Static" 0.0 0.0 1.0 1.0
+#pragma parameter saw_str "Sawtooth Stength" 0.5 0.0 1.0 0.05
 #pragma parameter bleed "Color Bleed Effect" 1.0 0.0 1.0 1.0
-#pragma parameter bl_size "Color Bleed Size, less is more" 1.5 0.1 4.0 0.05
+#pragma parameter bl_size "Color Bleed Size, less is more" 2.0 0.1 4.0 0.05
 #pragma parameter alloff "Switch off shader" 0.0 0.0 1.0 1.0
 #define pi 6.28318
 
@@ -120,6 +123,7 @@ uniform COMPAT_PRECISION vec2 OutputSize;
 uniform COMPAT_PRECISION vec2 TextureSize;
 uniform COMPAT_PRECISION vec2 InputSize;
 uniform sampler2D Texture;
+uniform sampler2D PassPrev3Texture;
 COMPAT_VARYING vec2 TEX0;
 COMPAT_VARYING vec2 scale;
 COMPAT_VARYING vec2 maskpos;
@@ -166,11 +170,14 @@ uniform COMPAT_PRECISION float inter;
 uniform COMPAT_PRECISION float vignette;
 uniform COMPAT_PRECISION float alloff;
 uniform COMPAT_PRECISION float sawtooth;
+uniform COMPAT_PRECISION float saw_str;
 uniform COMPAT_PRECISION float bleed;
 uniform COMPAT_PRECISION float bl_size;
 uniform COMPAT_PRECISION float sharpx;
 uniform COMPAT_PRECISION float sharpy;
 uniform COMPAT_PRECISION float crt_lum;
+uniform COMPAT_PRECISION float saw_static;
+uniform COMPAT_PRECISION float glow;
 
 #else
   
@@ -207,6 +214,9 @@ uniform COMPAT_PRECISION float crt_lum;
 #define sharpx 2.0
 #define sharpy 3.0
 #define crt_lum 1.0 
+#define saw_static 1.0 
+#define saw_str 0.25 
+#define glow 0.15 
 
 #endif
 
@@ -513,23 +523,23 @@ void main()
     
     vec4 res = vec4(1.0);
     
-    if (alloff == 1.0) {res= COMPAT_TEXTURE(Source,pC4); 
+    if (alloff == 1.0) {res= COMPAT_TEXTURE(PassPrev3Texture,pC4); 
         res = pow(res,vec4(1.0/GAMMA_OUT));
 }
         else
             {
-	       vec3 sample2 = COMPAT_TEXTURE(Source,pC4).rgb;
+	       vec3 sample2 = COMPAT_TEXTURE(PassPrev3Texture,pC4).rgb;
 	
 	vec3 color = sample2;
    //sawtooth effect
-float t = sin(float(FrameCount));  
+float t = sin(float(FrameCount*2));  if(saw_static == 1.0) t= 1.0;
 if (sawtooth == 1.0){
-    if( mod( floor(pC4.y*SourceSize.y*1.0), 2.0 ) == 0.0 ) {
-        color += COMPAT_TEXTURE( Source, pC4 + vec2(SourceSize.z*0.2*t, 0.0) ).rgb;
+    if( mod( floor(pC4.y*SourceSize.y), 2.0 ) == 0.0 ) {
+        color += saw_str*COMPAT_TEXTURE( PassPrev3Texture, pC4 + vec2(SourceSize.z*t*0.75, 0.0) ).rgb;
     } else {
-        color += COMPAT_TEXTURE( Source, pC4 - vec2(SourceSize.z*0.2*t, 0.0) ).rgb;
+        color += saw_str*COMPAT_TEXTURE( PassPrev3Texture, pC4 - vec2(SourceSize.z*t*0.75, 0.0) ).rgb;
     }
-    color /= 2.0;}
+    color /= 1.0+saw_str;}
 //end of sawtooth
 
 //color bleeding
@@ -538,8 +548,8 @@ if (bleed == 1.0){
     float px = 0.0;
     for( int x = -2; x <= 2; x++ ) {
         px = float(x)/bl_size * SourceSize.z - SourceSize.w * 0.5;
-        yuv.g += RGB2U( COMPAT_TEXTURE( Source, pC4 + vec2(px, 0.0)).rgb ) * a_kernel[x + 2];
-        yuv.b += RGB2V( COMPAT_TEXTURE( Source, pC4 + vec2(px, 0.0)).rgb ) * a_kernel[x + 2];
+        yuv.g += RGB2U( COMPAT_TEXTURE( PassPrev3Texture, pC4 + vec2(px, 0.0)).rgb ) * a_kernel[x + 2];
+        yuv.b += RGB2V( COMPAT_TEXTURE( PassPrev3Texture, pC4 + vec2(px, 0.0)).rgb ) * a_kernel[x + 2];
     }
     
     yuv.r = RGB2Y(color.rgb);
@@ -577,6 +587,8 @@ color =clamp(color, 0.0,1.0);
   x = (vTexCoord.x*SourceSize.x/InputSize.x-0.5);  // range -0.5 to 0.5, 0.0 being center of screen
   x = x*x*1.5;    // curved response: higher values (more far from center) get higher results.
 }
+    vec3 Glow = COMPAT_TEXTURE(Source,pC4).rgb;
+    color += Glow*glow;
     color = color*sw(f,lum,x) + color*sw(1.0-f,lum,x);
     
     color*=mix(mask(maskpos.xy*1.0001,color,lum), vec3(1.0),lum*0.9);
@@ -588,10 +600,11 @@ if (crt_lum == 1.0){
     // 0.29/0.24, 0.6/0.69, 0.11/0.07
      color *= vec3(1.208,0.8695,1.5714); 
    }
+
     color=pow(color,vec3(1.0/GAMMA_OUT));
 
     if (sat != 1.0) color = saturation(color, lum, lumWeighting);
-    
+
     if (corner!=0.0) color *= corner0(pC4);
     if (nois != 0.0) color *= 1.0+noise(pC4)*nois;
 	
@@ -607,7 +620,7 @@ if (crt_lum == 1.0){
     else
         res = vec4(0.0);
 #endif
-
+    
     FragColor = res;
 } 
 #endif

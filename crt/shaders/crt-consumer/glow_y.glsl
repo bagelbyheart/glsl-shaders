@@ -1,7 +1,5 @@
 #version 110
 
-#pragma parameter glow "Glow strength" 0.08 0.0 1.0 0.01
-
 #define pi 3.1415926535897932384626433
 
 #if defined(VERTEX)
@@ -100,24 +98,31 @@ COMPAT_VARYING vec4 TEX0;
 uniform COMPAT_PRECISION float glow;
 
 #else
-#define glow 0.1     
+#define glow 0.1    
     
 #endif
 
 #define psy vec2(0.0,SourceSize.w)
-#define size_x int(glow)
+#define one 1.384615
+#define two 3.230769
+#define w0  0.227027
+#define w1  0.316216
+#define w2  0.070270 
 
 void main()
 {
 
-vec3 res = COMPAT_TEXTURE(Source,vTexCoord).rgb;
-vec3 res0 = COMPAT_TEXTURE(Source,vTexCoord).rgb*0.468;
-res0 += COMPAT_TEXTURE(Source,vTexCoord+psy).rgb*0.236;
-res0 += COMPAT_TEXTURE(Source,vTexCoord-psy).rgb*0.236;
-res0 += COMPAT_TEXTURE(Source,vTexCoord-2.0*psy).rgb*0.03;
-res0 += COMPAT_TEXTURE(Source,vTexCoord+2.0*psy).rgb*0.03;
+/*
+  use hardware hack for 9-tap blur using linear and 5 passes, see:
+  https://www.rastergrid.com/blog/2010/09/efficient-gaussian-blur-with-linear-sampling/
+*/
 
-
-FragColor.rgb = res+glow*res0;    
+vec3 res0 = COMPAT_TEXTURE(Source,vTexCoord).rgb*w0;
+     res0 += COMPAT_TEXTURE(Source,vTexCoord+psy*one).rgb*w1;
+     res0 += COMPAT_TEXTURE(Source,vTexCoord-psy*one).rgb*w1;
+     res0 += COMPAT_TEXTURE(Source,vTexCoord-psy*two).rgb*w2;
+     res0 += COMPAT_TEXTURE(Source,vTexCoord+psy*two).rgb*w2;
+ 
+FragColor.rgb = res0;    
 }
 #endif

@@ -1,8 +1,8 @@
 #version 130
 
 /*
-    Pixel AA v1.5 by fishku
-    Copyright (C) 2023
+    Pixel AA v1.6 by fishku
+    Copyright (C) 2023-2024
     Public domain license (CC0)
 
     Features:
@@ -24,6 +24,7 @@
     subpixel anti-aliasing, results are identical to the "pixellate" shader.
 
     Changelog:
+    v1.6: Add "fast" version for low-end devices.
     v1.5: Optimize for embedded devices.
     v1.4: Enable subpixel sampling for all four pixel layout orientations,
           including rotated screens.
@@ -35,7 +36,7 @@
 */
 
 // clang-format off
-#pragma parameter PIX_AA_SETTINGS "=== Pixel AA v1.5 settings ===" 0.0 0.0 1.0 1.0
+#pragma parameter PIX_AA_SETTINGS "=== Pixel AA v1.6 settings ===" 0.0 0.0 1.0 1.0
 #pragma parameter PIX_AA_SHARP "Pixel AA sharpening amount" 1.5 0.0 2.0 0.05
 #pragma parameter PIX_AA_GAMMA "Enable gamma-correct blending" 1.0 0.0 1.0 1.0
 #pragma parameter PIX_AA_SUBPX "Enable subpixel AA" 0.0 0.0 1.0 1.0
@@ -113,9 +114,6 @@ uniform COMPAT_PRECISION int FrameCount;
 uniform COMPAT_PRECISION vec2 OutputSize;
 uniform COMPAT_PRECISION vec2 TextureSize;
 uniform COMPAT_PRECISION vec2 InputSize;
-// TODO: This seems like a bug in RetroArch -- Rotation is commonly unsigned.
-// The GLSL implementation is the only one that uses a signed integer.
-// The type of this uniform should be changed to `uint` once RA is patched.
 uniform COMPAT_PRECISION int Rotation;
 uniform sampler2D Texture;
 
@@ -285,7 +283,7 @@ uniform COMPAT_PRECISION float PIX_AA_SUBPX_ORIENTATION;
 void main() {
   FragColor = pixel_aa(Source, tx_per_px, tx_to_uv, tx_coord, PIX_AA_SHARP,
                        PIX_AA_GAMMA > 0.5, PIX_AA_SUBPX > 0.5,
-                       int(PIX_AA_SUBPX_ORIENTATION), int(Rotation));
+                       int(PIX_AA_SUBPX_ORIENTATION), Rotation);
 }
 
 #endif

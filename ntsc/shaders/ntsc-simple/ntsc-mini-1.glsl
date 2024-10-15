@@ -1,6 +1,18 @@
 #version 110
 
-#pragma parameter animate_ph "Animate Phase" 1.0 0.0 1.0 1.0
+#pragma parameter ph_mode "Phase:-1 Custom,0:blend,1:ZX,2:MD,3:NES/SNES,4:CGA/AppleII" 2.0 -1.0 4.0 1.0
+#pragma parameter h_deg "Custom Phase Horiz. Degrees" 120.0 0.0 180.0 0.5
+#pragma parameter v_deg "Custom Phase Vert. Degrees" 120.0 0.0 360.0 2.5
+#pragma parameter modulo "Custom Phase Modulo Steps (360/Vert.Deg)" 3.0 0.0 12.0 1.0
+#pragma parameter mini_sharp "Resolution" 0.5 0.1 4.0 0.1
+#pragma parameter Fl "Freq. Cutoff" 0.2 0.01 1.0 0.01
+#pragma parameter lpass "Chroma Low Pass" 0.05 0.0 1.0 0.01
+#pragma parameter d_crawl "Dot Crawl" 0.0 0.0 1.0 1.0
+#pragma parameter rf_audio "RF Audio Interference" 0.0 0.0 0.2 0.02
+#pragma parameter mini_hue1 "Hue Shift I" 0.1 -6.0 6.0 0.05
+#pragma parameter mini_hue2 "Hue Shift Q" -0.1 -6.0 6.0 0.05
+#pragma parameter mini_sat "Saturation" 2.0 0.0 4.0 0.05
+
 #if defined(VERTEX)
 
 #if __VERSION__ >= 130
@@ -24,7 +36,6 @@ COMPAT_ATTRIBUTE vec4 COLOR;
 COMPAT_ATTRIBUTE vec4 TexCoord;
 COMPAT_VARYING vec4 COL0;
 COMPAT_VARYING vec4 TEX0;
-COMPAT_VARYING vec2 scale;
 
 vec4 _oPosition1; 
 uniform mat4 MVPMatrix;
@@ -49,7 +60,6 @@ void main()
 {
     gl_Position = MVPMatrix * VertexCoord;
     TEX0.xy = TexCoord.xy*1.0001;
-    scale = SourceSize.xy/InputSize.xy;
 }
 
 #elif defined(FRAGMENT)
@@ -82,7 +92,6 @@ uniform COMPAT_PRECISION vec2 TextureSize;
 uniform COMPAT_PRECISION vec2 InputSize;
 uniform sampler2D Texture;
 COMPAT_VARYING vec4 TEX0;
-COMPAT_VARYING vec2 scale;
 
 // compatibility #defines
 #define vTexCoord TEX0.xy
@@ -91,53 +100,97 @@ COMPAT_VARYING vec2 scale;
 #define OutSize vec4(OutputSize, 1.0 / OutputSize)
 
 #ifdef PARAMETER_UNIFORM
-uniform COMPAT_PRECISION float animate_ph;
+uniform COMPAT_PRECISION float ph_mode;
+uniform COMPAT_PRECISION float Fl;
+uniform COMPAT_PRECISION float lpass;
+uniform COMPAT_PRECISION float d_crawl;
+uniform COMPAT_PRECISION float mini_hue;
+uniform COMPAT_PRECISION float mini_sat;
+uniform COMPAT_PRECISION float mini_sharp;
+uniform COMPAT_PRECISION float h_deg;
+uniform COMPAT_PRECISION float v_deg;
+uniform COMPAT_PRECISION float modulo;
 
 #else
-#define animate_ph 1.0
+#define ph_mode 90.0
+#define Fl 90.0
+#define lpass 0.2
+#define d_crawl 0.0
+#define mini_hue 0.0
+#define mini_sat 0.0
+#define mini_sharp 1.0
+#define h_deg 60.0
+#define v_deg 60.0
+#define modulo 1.0
 #endif
-
-
-// Encoder or Modulator
-// This pass converts RGB colors  to
-// a YIQ (NTSC) Composite signal.
 
 #define PI   3.14159265358979323846
 #define TAU  6.28318530717958647693
+#define s 1.0
+#define onedeg 0.017453
 
-const mat3 yiq_to_rgb = mat3(1.000, 1.000, 1.000,
-                             0.956,-0.272,-1.106,
-                             0.621,-0.647, 1.703);
+const mat3 YUV2RGB = mat3(1.0, 0.0, 1.13983,
+                          1.0, -0.39465, -0.58060,
+                          1.0, 2.03211, 0.0);
+
+float kaizer (float N, float p)
+{
+    // Compute sinc filter.
+    float k = sin(2.0 * Fl / s * (N - (p - 1.0) / 2.0));
+    return k;
+}
 
 void main() {
-    vec3 rgb = vec3(0.0);
-    float sum = 0.0;
-    vec2 ps = vec2(SourceSize.z,0.0);
-    for (int i=-4; i<=4; i++)
-    {    
-    float offset = float(i);
-    if ( offset>-3.0  && offset<=2.0 ) {
-    // Low Pass Y    
-        float w= exp(-0.2*offset*offset);
-        rgb.r += COMPAT_TEXTURE(Source,vTexCoord + ps*offset).r*w;
-        sum += w;
-    }
-    float phase = (vTexCoord.x*SourceSize.x + offset)*PI*0.666 + mod(vTexCoord.y*SourceSize.y*0.666,2.0)*PI;
-    float time = animate_ph > 0.0? (float(FrameCount))*PI:0.0;
 
-    float cs = cos(phase+time);
-    float sn = sin(phase+time);
-   
-    // High Pass Chroma (1.0 - lowpass), crude separation like a very early TV
-    float w = exp2(-0.3*offset*offset);
-    float r = 1.0-w;
-    rgb.yz += r*COMPAT_TEXTURE(Source,vTexCoord  + ps*offset).gb*3.0*vec2(cs,sn);
-    }
-    rgb.x /= sum;
-    rgb.yz /= 9.0;
+vec3 yuv = vec3(0.0);
+vec2 ps = vec2(SourceSize.z,0.0);
+float sum = 0.0; float sumc = 0.0;
 
-    rgb *= yiq_to_rgb;
- 
-    FragColor = vec4(rgb, 1.0);
+
+// luma
+for (int i=0; i<4; i++)
+{
+float p = float (i);
+vec2 pos = vTexCoord + ps*p/mini_sharp -ps;
+// Window
+float w = kaizer(4.0,p);
+yuv.r += COMPAT_TEXTURE(Source,pos).r*w;
+sum += w;
 }
-#endif 
+yuv.r /= sum;
+
+vec3 line = vec3(0.0);
+
+//chroma
+for (int i=-4; i<4; i++)
+{
+float p = float (i);
+// Low-pass 
+float w = exp(-lpass*p*p);
+
+// snes loosely based on internet videos and blargg
+
+float h_ph, v_ph, mod0 = 0.0;
+if      (ph_mode == 0.0) {h_ph =  90.0*onedeg; v_ph = PI;        mod0 = 2.0;}
+else if (ph_mode == 1.0) {h_ph = 120.0*onedeg; v_ph = PI;        mod0 = 2.0;}
+else if (ph_mode == 2.0) {h_ph = 48.0*onedeg; v_ph = 0.0;        mod0 = 2.0;}
+else if (ph_mode == 3.0) {h_ph = 120.0*onedeg; v_ph = PI*0.6667; mod0 = 3.0;}
+else if (ph_mode == 4.0) {h_ph =  45.0*onedeg; v_ph = 0.0; mod0 = 2.0;}
+else                     {h_ph =  h_deg*onedeg; v_ph = v_deg*onedeg; mod0 = modulo;}
+
+float phase = floor(vTexCoord.x*SourceSize.x + p)*h_ph + mod(floor(vTexCoord.y*SourceSize.y),mod0)*v_ph;
+phase += mini_hue;
+phase += d_crawl *(mod(float(FrameCount),3.0))*PI*0.6667;
+
+vec2 qam = mini_sat*vec2(cos(phase),sin(phase));
+
+line.gb = COMPAT_TEXTURE(Source,vTexCoord + ps*p).gb*qam*w;
+
+yuv.gb += line.gb;
+sumc += w;
+}
+yuv.gb /= sumc;
+
+FragColor.rgb = yuv*YUV2RGB;
+}
+#endif

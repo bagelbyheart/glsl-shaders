@@ -25,30 +25,29 @@ any later version.
 
 */
 
-
-#pragma parameter SCANLINE "Scanline Weight" 0.3 0.2 0.6 0.05
+#pragma parameter hor_sharp "Sharpness Horizontal" 0.25 0.0 1.0 0.05
+#pragma parameter SCANLINE "CRT-Geom Scanline Weight" 0.3 0.2 0.6 0.05
 #pragma parameter INTERLACE "Interlacing On/Off" 1.0 0.0 1.0 1.0
 #pragma parameter bogus_msk " [ MASK SETTINGS ] " 0.0 0.0 0.0 0.0
 #pragma parameter M_TYPE "Mask Type: -1:None, 0:CGWG, 1:RGB" 1.0 -1.0 1.0 1.0
 #pragma parameter MSIZE "Mask Size" 1.0 1.0 2.0 1.0
-#pragma parameter SLOT "Slot Mask On/Off" 1.0 0.0 1.0 1.0
+#pragma parameter SLOT "Slot Mask On/Off (speed-up)" 1.0 0.0 1.0 1.0
 #pragma parameter SLOTW "Slot Mask Width" 3.0 2.0 3.0 1.0
 #pragma parameter BGR "Subpixels BGR/RGB" 0.0 0.0 1.0 1.0
 #pragma parameter Maskl "Mask Brightness Dark" 0.3 0.0 1.0 0.05
 #pragma parameter Maskh "Mask Brightness Bright" 0.75 0.0 1.0 0.05
 #pragma parameter bogus_geom " [ GEOMETRY SETTINGS ] " 0.0 0.0 0.0 0.0
-#pragma parameter bzl "Bezel On/Off" 1.0 0.0 1.0 1.0
+#pragma parameter bzl "Bezel On/Off (speed-up)" 1.0 0.0 1.0 1.0
 #pragma parameter zoomx "Zoom Image X" 0.0 -1.0 1.0 0.005
 #pragma parameter zoomy "Zoom Image Y" 0.0 -1.0 1.0 0.005
 #pragma parameter centerx "Image Center X" 0.0 -3.0 3.0 0.05 
 #pragma parameter centery "Image Center Y" 0.0 -3.0 3.0 0.05
-#pragma parameter WARPX "Curvature Horizontal" 0.02 0.00 0.25 0.01
-#pragma parameter WARPY "Curvature Vertical" 0.01 0.00 0.25 0.01
+#pragma parameter DISTORTION "Curvature" 0.12 0.00 0.30 0.01
 #pragma parameter corner "Corners Cut" 0.0 0.0 1.0 1.0
 #pragma parameter vig "Vignette On/Off" 1.0 0.0 1.0 1.0
 #pragma parameter bogus_col " [ COLOR SETTINGS ] " 0.0 0.0 0.0 0.0
 #pragma parameter BR_DEP "Scan/Mask Brightness Dependence" 0.2 0.0 0.333 0.01
-#pragma parameter c_space "Color Space: sRGB,PAL,NTSC-U,NTSC-J" 0.0 0.0 3.0 1.0
+#pragma parameter c_space "Color Space: sRGB,PAL,NTSC-U,NTSC-J (slow-down)" 0.0 0.0 3.0 1.0
 #pragma parameter EXT_GAMMA "External Gamma In (Glow etc)" 0.0 0.0 1.0 1.0
 #pragma parameter SATURATION "Saturation" 1.0 0.0 2.0 0.05
 #pragma parameter BRIGHTNESs "Brightness, Sega fix:1.06" 1.0 0.0 2.0 0.01
@@ -174,8 +173,7 @@ uniform COMPAT_PRECISION float CONV_G;
 uniform COMPAT_PRECISION float CONV_B;
 uniform COMPAT_PRECISION float SCANLINE;
 uniform COMPAT_PRECISION float INTERLACE;
-uniform COMPAT_PRECISION float WARPX;
-uniform COMPAT_PRECISION float WARPY;
+uniform COMPAT_PRECISION float DISTORTION;
 uniform COMPAT_PRECISION float SLOT;
 uniform COMPAT_PRECISION float SLOTW;
 uniform COMPAT_PRECISION float c_space;
@@ -195,6 +193,7 @@ uniform COMPAT_PRECISION float centerx;
 uniform COMPAT_PRECISION float centery;
 uniform COMPAT_PRECISION float bzl;
 uniform COMPAT_PRECISION float corner;
+uniform COMPAT_PRECISION float hor_sharp;
 #else
 #define M_TYPE 0.0
 #define BGR 0.0
@@ -209,8 +208,7 @@ uniform COMPAT_PRECISION float corner;
 #define CONV_B 0.0      
 #define SCANLINE 0.3   
 #define INTERLACE 1.0   
-#define WARPX 0.032   
-#define WARPY 0.042   
+#define DISTORTION 0.12   
 #define SLOT 0.0    
 #define SLOTW 2.0    
 #define c_space 0.0    
@@ -230,6 +228,7 @@ uniform COMPAT_PRECISION float corner;
 #define centery  0.07  
 #define bzl  1.0  
 #define corner  1.0  
+#define hor_sharp 0.3  
 #endif
 
 vec3 Mask(vec2 pos, float CGWG)
@@ -265,7 +264,7 @@ if (M_TYPE == 1.0){
 
 }
 
-float scanlineWeights(float distance, vec3 color, float x)
+float scanlineWeights(float distance, vec3 color)
     {
     // "wid" controls the width of the scanline beam, for each RGB
     // channel The "weights" lines basically specify the formula
@@ -277,12 +276,12 @@ float scanlineWeights(float distance, vec3 color, float x)
     // independent of its width. That is, for a narrower beam
     // "weights" should have a higher peak at the center of the
     // scanline than for a wider beam.
-    float wid = SCANLINE + 0.15 * dot(color, vec3(0.25-0.8*x));   //0.8 vignette strength
+    float wid = SCANLINE +  0.2*dot(color, vec3(0.25));   
     float weights = distance / wid;
     return 0.4 * exp(-weights * weights ) / wid;
     }
 
-#define pwr vec3(1.0/((-1.0*SCANLINE+1.0)*(-0.8*CGWG+1.0))-1.2)
+#define pwr vec3(1.0/((1.0-SCANLINE)*(1.0-0.8*CGWG))-1.2)
 // Returns gamma corrected output, compensated for scanline+mask embedded gamma
 vec3 inv_gamma(vec3 col, vec3 power)
 {
@@ -325,13 +324,26 @@ else if (odd == 1.0)
     {if (h<0.5) return vec3(1.5); else return vec3(0.5);}
 }
 
-vec2 Warp(vec2 pos)
-{
-    pos = pos*2.0-1.0;
-    pos *= vec2(1.0+pos.y*pos.y*WARPX, 1.0+pos.x*pos.x*WARPY);
-    pos = pos*0.5+0.5;
 
-    return pos;
+vec2 Warp(vec2 coord)
+{
+        vec2 CURVATURE_DISTORTION = vec2(DISTORTION, DISTORTION*1.5);
+        // Barrel distortion shrinks the display area a bit, this will allow us to counteract that.
+        vec2 barrelScale = 1.0 - (0.23 * CURVATURE_DISTORTION);
+        //coord *= scale;
+        coord -= vec2(0.5);
+        float rsq = coord.x*coord.x + coord.y*coord.y;
+        coord += coord * (CURVATURE_DISTORTION * rsq);
+        coord *= barrelScale;
+        if (abs(coord.x) >= 0.5 || abs(coord.y) >= 0.5)
+                coord = vec2(-1.0);             // If out of bounds, return an invalid value.
+        else
+        {
+                coord += vec2(0.5);
+         //       coord /= scale;
+        }
+
+        return coord;
 }
 
 void main()
@@ -354,7 +366,7 @@ mat3 hue = mat3(
     pos /= scale;
 
     vec4 bez = COMPAT_TEXTURE(bezel,vTexCoord*SourceSize.xy/InputSize.xy*0.95+vec2(0.022,0.022));    
-    bez.rgb = mix(bez.rgb, vec3(0.25),0.4);
+    bez.rgb = mix(bez.rgb, vec3(0.25),0.6);
 
     vec2 bpos = pos;
 
@@ -364,7 +376,7 @@ mat3 hue = mat3(
     vec2 i = floor(pos*SourceSize.xy) + 0.5;
     float f = ogl2.y - i.y;
     pos.y = (i.y + 4.0*f*f*f)*ps.y; // smooth
-    pos.x = mix(pos.x, i.x*ps.x, 0.2);
+    pos.x = mix(pos.x, i.x*ps.x, hor_sharp);
 
 // Convergence
     vec3  res0 = COMPAT_TEXTURE(Source,pos).rgb;
@@ -380,7 +392,7 @@ mat3 hue = mat3(
     float x = 0.0;
     if (vig == 1.0){
     x = vTexCoord.x*scale.x-0.5;
-    x = x*x;}
+    x = x*x*0.4;}
 
     float l = dot(vec3(BR_DEP),res);
  
@@ -403,8 +415,8 @@ mat3 hue = mat3(
         if (INTERLACE == 1.0) s = mod(float(FrameCount),2.0) < 1.0 ? s: s+0.5;
     }
 // Calculate CRT-Geom scanlines weight and apply
-    float weight  = scanlineWeights(s, res, x);
-    float weight2 = scanlineWeights(1.0-s, res, x);
+    float weight  = scanlineWeights(s, res)-x;
+    float weight2 = scanlineWeights(1.0-s, res)-x;
     res *= weight + weight2;
 
 // Masks
